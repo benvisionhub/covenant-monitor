@@ -1,15 +1,6 @@
-import express from 'express';
-import cors from 'cors';
 import pdfParse from 'pdf-parse';
 import { createClient } from '@supabase/supabase-js';
-import multer from 'multer';
 import { Buffer } from 'buffer';
-
-const app = express();
-
-app.use(cors());
-app.use(express.json());
-app.use(express.raw({ type: 'application/pdf', limit: '10mb' }));
 
 const supabase = createClient(
   process.env.SUPABASE_URL || '',
@@ -17,19 +8,17 @@ const supabase = createClient(
 );
 
 async function extractText(data) {
-  const parsed = await pdfParse(Buffer.from(data));
+  let buffer;
+  if (typeof data === 'string') {
+    // base64 encoded
+    buffer = Buffer.from(data, 'base64');
+  } else if (data instanceof Uint8Array || ArrayBuffer.isView(data)) {
+    buffer = Buffer.from(data);
+  } else {
+    buffer = Buffer.from(data);
+  }
+  const parsed = await pdfParse(buffer);
   return parsed.text;
-}
-
-function detectCovenantType(section) {
-  const lower = section.toLowerCase();
-  if (lower.includes('leverage') || lower.includes('debt/ebitda') || lower.includes('total debt')) return 'leverage_ratio';
-  if (lower.includes('interest coverage') || lower.includes('ebitda/interest') || lower.includes('debt service')) return 'interest_coverage';
-  if (lower.includes('current ratio') || lower.includes('liquidity') || lower.includes('working capital')) return 'liquidity';
-  if (lower.includes('minimum net worth') || lower.includes('tangible net worth') || lower.includes('net worth')) return 'net_worth';
-  if (lower.includes('capital expenditure') || lower.includes('capex')) return 'capex';
-  if (lower.includes('debt payment') || lower.includes('amortization')) return 'debt_payment';
-  return 'other';
 }
 
 function extractCovenants(text) {
@@ -61,18 +50,18 @@ function extractCovenants(text) {
         const numStr = match[1].replace(/,/g, '');
         const threshold = parseFloat(numStr);
         if (!isNaN(threshold) && threshold > 0 && threshold < 10000) {
+          const rawLower = match[0].toLowerCase();
           covenants.push({
             type,
             description: match[0].substring(0, 200),
             threshold,
-            operator: match[0].toLowerCase().includes('not be less than') || match[0].toLowerCase().includes('greater than') || match[0].toLowerCase().includes('exceed') && !match[0].toLowerCase().includes('not exceed') ? 'max' : 'min',
+            operator: (rawLower.includes('not be less than') || rawLower.includes('greater than') || rawLower.includes('exceed') && !rawLower.includes('not exceed')) ? 'max' : 'min',
             raw_text: match[0].substring(0, 300),
           });
         }
       }
     }
   }
-
   return covenants;
 }
 
@@ -96,7 +85,11 @@ function extractFacilityDetails(text) {
   ];
   for (const p of amountPatterns) {
     const m = text.match(p);
-    if (m) { details.loanAmount = parseFloat(m[1].replace(/,/g,'')) * (m[0].includes('billion') ? 1000 : m[0].includes('million') ? 1 : 0.001); break; }
+    if (m) {
+      const num = parseFloat(m[1].replace(/,/g,''));
+      details.loanAmount = m[0].includes('billion') ? num * 1000 : m[0].includes('million') ? num : num;
+      break;
+    }
   }
   const maturityPatterns = [
     /(?:maturity|date)[\s\S]{0,50}?\b(\w+\s+\d{1,2},?\s+\d{4})\b/i,
@@ -117,7 +110,6 @@ function extractFacilityDetails(text) {
   return details;
 }
 
-// POST /api/parse — parse a credit agreement PDF
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -125,10 +117,24 @@ export default async function handler(req, res) {
 
   try {
     let pdfData;
-    if (req.body) {
+
+    // Handle JSON body: { pdf: "base64..." }
+    if (req.body && typeof req.body === 'object' && req.body.pdf) {
+      pdfData = req.body.pdf;
+    }
+    // Handle raw Buffer body (direct PDF upload)
+    else if (req.body && Buffer.isBuffer(req.body)) {
       pdfData = req.body;
-    } else if (req.rawBody) {
-      pdfData = req.rawBody;
+    }
+    // Handle string body
+    else if (typeof req.body === 'string' && req.body.length > 0) {
+      try {
+        const parsed = JSON.parse(req.body);
+        if (parsed.pdf) pdfData = parsed.pdf;
+        else pdfData = req.body;
+      } catch {
+        pdfData = req.body;
+      }
     } else {
       return res.status(400).json({ error: 'No PDF data provided' });
     }
@@ -145,7 +151,7 @@ export default async function handler(req, res) {
       return true;
     });
 
-    res.json({
+    return res.json({
       companyName,
       facilityDetails,
       covenantCount: uniqueCovenants.length,
@@ -154,8 +160,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('Parse error:', err);
-    res.status(500).json({ error: 'Failed to parse PDF: ' + err.message });
+    return res.status(500).json({ error: 'Failed to parse PDF: ' + err.message });
   }
 }
-
-module.exports = handler;
