@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import './App.css';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'https://covenant-monitor.vercel.app';
 
 const COVENANT_LABELS = {
   leverage_ratio: 'Leverage Ratio (Debt/EBITDA)',
@@ -28,10 +28,10 @@ export default function App() {
   const [loadingAgreements, setLoadingAgreements] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Covenant check state
   const [checkMetrics, setCheckMetrics] = useState({});
   const [checkResults, setCheckResults] = useState(null);
   const [checking, setChecking] = useState(false);
+  const [selectedAgreementId, setSelectedAgreementId] = useState(null);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -49,9 +49,16 @@ export default function App() {
     setParsing(true);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append('file', uploadedFile);
-      const res = await fetch(`${API_URL}/api/parse`, { method: 'POST', body: formData });
+      const arrayBuffer = await uploadedFile.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+
+      const res = await fetch(`${API_URL}/api/parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdf: base64 }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Parse failed');
       setParsedData(data);
@@ -97,14 +104,15 @@ export default function App() {
     }
   };
 
-  const handleCheck = async (agreementId) => {
+  const handleCheck = async () => {
+    if (!selectedAgreementId) return;
     setChecking(true);
     setCheckResults(null);
     try {
       const res = await fetch(`${API_URL}/api/covenant/check`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agreementId, financials: checkMetrics }),
+        body: JSON.stringify({ agreementId: selectedAgreementId, financials: checkMetrics }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -143,14 +151,14 @@ export default function App() {
           <div className="upload-view">
             <div className="hero">
               <h1>Upload Credit Agreement</h1>
-              <p>Paste your credit agreement PDF. We extract the covenants automatically — no manual encoding needed.</p>
+              <p>Drop a credit agreement PDF. We extract covenants automatically — no manual encoding needed.</p>
             </div>
 
             {!parsedData ? (
               <div className="upload-zone">
                 <div className="file-input-wrapper">
                   <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleFileChange} className="file-input" />
-                  <div className="file-input-display">
+                  <div className="file-input-display" onClick={() => fileInputRef.current?.click()}>
                     {uploadedFile ? (
                       <div className="file-selected">
                         <span className="file-icon">📄</span>
@@ -188,7 +196,7 @@ export default function App() {
                     <h3>Facility Details</h3>
                     <div className="facility-grid">
                       {parsedData.facilityDetails.loanAmount && (
-                        <div className="facility-item"><span className="facility-label">Loan Amount</span><span className="facility-value">${parsedData.facilityDetails.loanAmount.toFixed(1)}M</span></div>
+                        <div className="facility-item"><span className="facility-label">Loan Amount</span><span className="facility-value">${parsedData.facilityDetails.loanAmount >= 1000 ? (parsedData.facilityDetails.loanAmount/1000).toFixed(1) + 'B' : parsedData.facilityDetails.loanAmount.toFixed(1) + 'M'}</span></div>
                       )}
                       {parsedData.facilityDetails.maturity && (
                         <div className="facility-item"><span className="facility-label">Maturity</span><span className="facility-value">{parsedData.facilityDetails.maturity}</span></div>
@@ -245,60 +253,66 @@ export default function App() {
             ) : (
               <div className="agreements-list">
                 {agreements.map((agg) => (
-                  <div key={agg.id} className="agreement-card">
+                  <div key={agg.id} className={`agreement-card ${selectedAgreementId === agg.id ? 'selected' : ''}`} onClick={() => { setSelectedAgreementId(agg.id); setCheckResults(null); }}>
                     <div className="agreement-header">
                       <h3>{agg.company_name}</h3>
                       <span className="agreement-date">{new Date(agg.created_at).toLocaleDateString()}</span>
                     </div>
-                    
+
                     <div className="agreement-covenants-summary">
                       <span className="cov-count">{agg.covenants?.length || 0} covenants detected</span>
                     </div>
 
                     {agg.facility_details && Object.keys(agg.facility_details).length > 0 && (
                       <div className="agreement-facility">
-                        {agg.facility_details.loanAmount && <span>${agg.facility_details.loanAmount.toFixed(1)}M</span>}
+                        {agg.facility_details.loanAmount && <span>${agg.facility_details.loanAmount >= 1000 ? (agg.facility_details.loanAmount/1000).toFixed(1) + 'B' : agg.facility_details.loanAmount.toFixed(1) + 'M'}</span>}
                         {agg.facility_details.maturity && <span>Matures {agg.facility_details.maturity}</span>}
                       </div>
                     )}
 
-                    <div className="check-section">
-                      <h4>Check Compliance</h4>
-                      <div className="metrics-grid">
-                        {(agg.covenants || []).map((cov, i) => (
-                          <div key={i} className="metric-input">
-                            <label>{COVENANT_LABELS[cov.type] || cov.type}</label>
-                            <input
-                              type="number"
-                              placeholder={cov.operator === 'max' ? `Max: ${cov.threshold}` : `Min: ${cov.threshold}`}
-                              value={checkMetrics[cov.type] || ''}
-                              onChange={(e) => setCheckMetrics({ ...checkMetrics, [cov.type]: e.target.value })}
-                            />
+                    {selectedAgreementId === agg.id && (
+                      <>
+                        <div className="check-section">
+                          <h4>Enter Current Financials</h4>
+                          <div className="metrics-grid">
+                            {(agg.covenants || []).map((cov, i) => (
+                              <div key={i} className="metric-input">
+                                <label>{COVENANT_LABELS[cov.type] || cov.type}</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder={cov.operator === 'max' ? `Max: ${cov.threshold}` : `Min: ${cov.threshold}`}
+                                  value={checkMetrics[cov.type] || ''}
+                                  onChange={(e) => setCheckMetrics({ ...checkMetrics, [cov.type]: e.target.value })}
+                                />
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                      <button className="btn-primary" onClick={() => handleCheck(agg.id)} disabled={checking}>
-                        {checking ? 'Checking...' : 'Check Compliance'}
-                      </button>
-                    </div>
-
-                    {checkResults && (
-                      <div className="check-results">
-                        <h4>Results</h4>
-                        <div className="results-summary">
-                          <span className="pass-count">✅ {checkResults.summary.pass} Pass</span>
-                          <span className="breach-count">❌ {checkResults.summary.breach} Breach</span>
+                          <button className="btn-primary" onClick={(e) => { e.stopPropagation(); handleCheck(); }} disabled={checking}>
+                            {checking ? 'Checking...' : 'Check Compliance'}
+                          </button>
                         </div>
-                        {checkResults.results.map((r, i) => (
-                          <div key={i} className="result-item" style={{ borderLeftColor: STATUS_COLORS[r.status] }}>
-                            <span className="result-type">{COVENANT_LABELS[r.type] || r.type}</span>
-                            <span className="result-values">
-                              Current: <strong>{r.current}</strong> | Threshold: <strong>{r.operator === 'max' ? '≤' : '≥'}{r.threshold}</strong>
-                            </span>
-                            <span className={`result-status ${r.status}`}>{r.status.toUpperCase()}</span>
+
+                        {checkResults && (
+                          <div className="check-results">
+                            <h4>Results</h4>
+                            <div className="results-summary">
+                              <span className="pass-count">✅ {checkResults.summary.pass} Pass</span>
+                              <span className="breach-count">❌ {checkResults.summary.breach} Breach</span>
+                              {checkResults.summary.unknown > 0 && <span className="unknown-count">— {checkResults.summary.unknown} Unknown</span>}
+                            </div>
+                            {checkResults.results.map((r, i) => (
+                              <div key={i} className="result-item" style={{ borderLeftColor: STATUS_COLORS[r.status] }}>
+                                <span className="result-type">{COVENANT_LABELS[r.type] || r.type}</span>
+                                <span className="result-values">
+                                  Current: <strong>{r.current ?? '—'}</strong> | Threshold: <strong>{r.operator === 'max' ? '≤' : '≥'}{r.threshold}</strong>
+                                </span>
+                                <span className={`result-status ${r.status}`}>{r.status.toUpperCase()}</span>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}
@@ -309,7 +323,7 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        <p>CovenantIQ MVP · Built with AI · {new Date().getFullYear()}</p>
+        <p>CovenantIQ MVP · {new Date().getFullYear()}</p>
       </footer>
     </div>
   );
