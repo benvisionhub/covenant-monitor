@@ -1,40 +1,37 @@
 # CovenantIQ — Credit Agreement Intelligence
 
-Upload a credit agreement PDF. Get instant covenant extraction, compliance checking, and portfolio monitoring — without manual data entry.
+Upload a credit agreement PDF. Get instant covenant extraction, compliance checking, and portfolio monitoring — no manual encoding.
+
+**Live:** https://covenant-monitor-nu.vercel.app
+**GitHub:** https://github.com/benvisionhub/covenant-monitor
 
 ## What it does
 
-- **Upload credit agreements** — Drop a PDF, get all covenants extracted automatically
+- **Upload credit agreements** — Drop a PDF, get covenants extracted automatically
 - **Compliance checking** — Enter current financial metrics, see pass/breach instantly
 - **Portfolio tracking** — Save and track multiple agreements
+- **Forward-looking** — Headroom calculation shows how close you are to breach
 
-## Quick Start
+## Setup
 
-### 1. Set up Supabase
+### 1. Supabase (free tier)
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** and run the contents of `supabase-schema.sql`
+2. Go to **SQL Editor** and run `supabase-schema.sql`
 3. Copy your project URL and anon key
 
-### 2. Deploy to Vercel
+### 2. Vercel environment variables
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/benvisionhub/covenant-monitor)
-
-Or from CLI:
-
-```bash
-npm i -g vercel
-vercel --prod
-```
-
-### 3. Configure environment variables
-
-In Vercel project settings, add:
+In your Vercel project settings, add:
 
 | Variable | Value |
 |----------|-------|
-| `SUPABASE_URL` | Your Supabase project URL |
-| `SUPABASE_ANON_KEY` | Your Supabase anon key |
+| `SUPABASE_URL` | `https://xxxxx.supabase.co` |
+| `SUPABASE_ANON_KEY` | Your anon key |
+
+### 3. Redeploy
+
+After adding env vars, trigger a redeploy in Vercel dashboard.
 
 ### 4. Run locally
 
@@ -48,32 +45,34 @@ npm run server
 ## Tech Stack
 
 - **Frontend:** React + Vite
-- **Backend:** Express.js (serverless on Vercel)
+- **Backend:** Express.js (Vercel serverless)
 - **Database:** Supabase (PostgreSQL)
-- **PDF Parsing:** pdf-parse
+- **PDF Parsing:** pdf-parse (regex-based covenant extraction)
 - **Deployment:** Vercel
 
 ## How covenant extraction works
 
-The parser uses regex patterns to identify covenant language in credit agreements:
+Regex patterns detect standard credit agreement language:
 
-- **Leverage Ratio** — "Total Debt/EBITDA shall not exceed X"
-- **Interest Coverage** — "EBITDA/Interest shall not be less than X"
-- **Liquidity** — "Current Ratio shall not be less than X"
-- **Net Worth** — "Tangible Net Worth shall not be less than $X"
-- **CapEx** — "Capital Expenditures shall not exceed $X"
+| Type | Detects |
+|------|---------|
+| Leverage Ratio | "Debt/EBITDA shall not exceed X" |
+| Interest Coverage | "EBITDA/Interest shall not be less than X" |
+| Liquidity | "Current Ratio shall not be less than X" |
+| Net Worth | "Tangible Net Worth shall not be less than $XM" |
+| CapEx | "Capital Expenditures shall not exceed $XM" |
 
 ## Limitations
 
-- Regex-based extraction works best on standard credit agreement language
-- Complex or unusual covenant phrasing may not be detected
+- Regex extraction works best on standard credit agreement language
+- Complex or non-standard phrasing may be missed
 - Covenant-lite agreements may return 0 covenants
-- For production use, add human review of extracted covenants
+- For production: add human review of extracted covenants
 
 ## Roadmap
 
-- [ ] Claude-powered covenant extraction (ML layer)
-- [ ] Trajectory forecasting (breach probability)
-- [ ] PDF generation for compliance reports
-- [ ] Multi-user / team support
+- [ ] Claude-powered ML extraction layer (handle non-standard phrasing)
+- [ ] Trajectory forecasting — breach probability before it happens
+- [ ] PDF compliance report generation
 - [ ] Direct NetSuite/QuickBooks integration
+- [ ] Multi-user / team support

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import './App.css';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://covenant-monitor.vercel.app';
+const API_URL = import.meta.env.VITE_API_URL || 'https://covenant-monitor-ozxwhk31y-benvisionhubs-projects.vercel.app';
 
 const COVENANT_LABELS = {
   leverage_ratio: 'Leverage Ratio (Debt/EBITDA)',
